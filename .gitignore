@@ -1,0 +1,21 @@
+# ---- 二进制（README「一、安装」有获取与放包说明） ----
+bin/*.exe
+bin/*.dll
+deploy/*.zip
+
+# ---- 运行期产物（自动生成，勿入库） ----
+logs/
+ports.json
+ser2net.pid
+etc/ser2net/ser2net.yaml
+_restart.request
+restart.request
+
+# ---- 备份/调试残留 ----
+*.bak
+*.bak-*
+linux/t-*
+
+# ---- Python ----
+__pycache__/
+*.pyc
