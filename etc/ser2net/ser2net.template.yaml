@@ -1,0 +1,32 @@
+%YAML 1.1
+---
+# =====================================================================
+#  ser2net for Windows - GENERATED FILE, DO NOT EDIT DIRECTLY
+#
+#  Source     : etc\ser2net\ser2net.template.yaml
+#  Regenerate : bin\serial-hub.ps1 render
+#
+#  The device index lives in devices.json: every USB-serial (CH344 and
+#  standalone adapters alike) is keyed by its PnP fingerprint and gets a
+#  stable alias + TCP port.  COM numbers are recomputed from live hardware
+#  at every render, because Windows reassigns them freely (the same adapter
+#  can be COM15 today and COM42 tomorrow).
+#
+#  Edit devices.json or settings.json, never this file.
+# =====================================================================
+#
+#  Generated  : {{GENERATED_AT}}
+#  Host       : {{HOSTNAME}}
+#  Bind       : {{BIND_IP}}
+#  Devices    : {{SLOT_SUMMARY}}
+# =====================================================================
+
+# CLOCAL: ignore DTR/RTS so the board never sees a modem-control glitch
+# caused by a client disconnecting.
+defaults:
+  local:
+    value: true
+    class: serialdev
+
+connections:
+{{CONNECTIONS}}

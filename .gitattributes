@@ -1,0 +1,13 @@
+# 统一按文本入库；Linux 侧脚本必须保持 LF（CRLF 会让 bash/python 直接报错）
+* text=auto
+*.sh   text eol=lf
+*.py   text eol=lf
+*.md   text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.ps1  text eol=crlf
+
+# 二进制（本地保留，不入库；这里仅兜底防误加）
+*.exe  binary
+*.dll  binary
+*.zip  binary

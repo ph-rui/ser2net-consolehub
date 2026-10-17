@@ -1,0 +1,27 @@
+﻿{
+    "_comment":  "User-editable settings for serial-hub.ps1. Only bindIp/baud/ports need changing in practice.",
+    "_bind_comment":  "ser2net 监听地址。0.0.0.0 = 所有网卡都监听（不能拿来做客户端地址）。",
+    "bindIp":  "0.0.0.0",
+    "_advertise_comment":  "对外通告地址：banner 和推给 Linux 的 linux\\devices.conf 用它。留空则退到 bindIp。",
+    "advertiseIp":  "172.16.66.163",
+    "_queryPort_comment":  "设备表实时查询端口（query-server.ps1，autostart 时自动拉起并被守护重启）。Linux 上 console.sh 优先查这里拿实时设备表，查不到才回落到本地 devices.conf 快照。设 0 关闭。",
+    "queryPort":  4099,
+    "_queryBind_comment":  "查询服务监听地址。0.0.0 = 所有网卡都能查（推荐，console.sh 自选可达的那段）。",
+    "queryBind":  "0.0.0.0",
+    "_baud_comment":  "Console line settings. Must match the board\u0027s own setting (u-boot console= / cmdline console=).",
+    "baud":  115200,
+    "dataBits":  8,
+    "parity":  "N",
+    "stopBits":  1,
+    "_ports_comment":  "CH344 历史槽位 a-d 的端口，仅用作首次登记 devices.json 时的种子；登记后端口以 devices.json 为准。新设备的端口自动从 4004 起分配。",
+    "ports":  {
+                  "a":  4000,
+                  "b":  4001,
+                  "c":  4002,
+                  "d":  4003
+              },
+    "trace":  true,
+    "traceKeepDays":  14,
+    "_maxcon_comment":  "每端口最大 TCP 连接数。=1 保持\u0027后连踢先连\u0027(kickolduser)；\u003e1 时多个读端可同时挂同一串口(一个写、其余只读吧)，但旧连接不会自动被踢。可在 devices.json 里给单个设备加 maxConnections 覆盖。",
+    "maxConnections":  1
+}

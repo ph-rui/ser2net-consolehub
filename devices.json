@@ -1,0 +1,82 @@
+﻿{
+    "generated":  "2026-10-12 18:52:13",
+    "devices":  [
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_00\\6\u00262FD485C6\u00260\u00260000",
+                        "alias":  "a",
+                        "label":  "USB-Enhanced-SERIAL-A CH344",
+                        "port":  4000,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_02\\6\u00262FD485C6\u00260\u00260002",
+                        "alias":  "b",
+                        "label":  "USB-Enhanced-SERIAL-B CH344",
+                        "port":  4001,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_04\\6\u00262FD485C6\u00260\u00260004",
+                        "alias":  "c",
+                        "label":  "USB-Enhanced-SERIAL-C CH344",
+                        "port":  4002,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_06\\6\u00262FD485C6\u00260\u00260006",
+                        "alias":  "d",
+                        "label":  "USB-Enhanced-SERIAL-D CH344",
+                        "port":  4003,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_7523\\5\u002639501C9A\u00260\u002627",
+                        "alias":  "e",
+                        "label":  "USB-SERIAL CH340",
+                        "port":  4004,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_7523\\5\u002639501C9A\u00260\u002620",
+                        "alias":  "f",
+                        "label":  "USB-SERIAL CH340",
+                        "port":  4005,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_00\\6\u002612741DE1\u00260\u00260000",
+                        "alias":  "g",
+                        "label":  "USB-Enhanced-SERIAL-A CH344 (2)",
+                        "port":  4006,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_02\\6\u002612741DE1\u00260\u00260002",
+                        "alias":  "h",
+                        "label":  "USB-Enhanced-SERIAL-B CH344 (2)",
+                        "port":  4007,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_04\\6\u002612741DE1\u00260\u00260004",
+                        "alias":  "i",
+                        "label":  "USB-Enhanced-SERIAL-C CH344 (2)",
+                        "port":  4008,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_06\\6\u002612741DE1\u00260\u00260006",
+                        "alias":  "j",
+                        "label":  "USB-Enhanced-SERIAL-D CH344 (2)",
+                        "port":  4009,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_7523\\5\u002639501C9A\u00260\u002622",
+                        "alias":  "k",
+                        "label":  "USB-SERIAL CH340",
+                        "port":  4010,
+                        "baud":  0
+                    }
+                ]
+}
