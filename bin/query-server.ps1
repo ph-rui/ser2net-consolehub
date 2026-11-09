@@ -125,7 +125,10 @@ function Get-LiveComDevices {
     $out = @()
     try {
         $devs = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-                  Where-Object { $_.Class -eq 'Ports' -and $_.InstanceId -like 'USB\*' })
+                  Where-Object {
+                      $_.Class -eq 'Ports' -and
+                      ($_.InstanceId -like 'USB\*' -or $_.InstanceId -like 'FTDIBUS\*')
+                  })
     } catch { return ,@() }
 
     foreach ($d in $devs) {

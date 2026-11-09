@@ -79,7 +79,10 @@ $deadline = (Get-Date).AddSeconds($WaitForUsbSeconds)
 $seen = $false
 while ((Get-Date) -lt $deadline) {
     $n = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
-           Where-Object { $_.Name -match '\(COM\d+\)' -and $_.DeviceID -like 'USB\*' }).Count
+           Where-Object {
+               $_.Name -match '\(COM\d+\)' -and
+               ($_.DeviceID -like 'USB\*' -or $_.DeviceID -like 'FTDIBUS\*')
+           }).Count
     if ($n -gt 0) { $seen = $true; Say "autostart: USB-serial present ($n ports)"; break }
     Start-Sleep -Seconds 3
 }
