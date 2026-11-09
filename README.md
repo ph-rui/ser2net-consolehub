@@ -524,6 +524,33 @@ Windows 侧 trace（见"七、日志"），不要在命令行里给 console.sh �
 - ser2net 没跑 → `start`（或确认开机任务没被停）
 - Linux 侧问错了 hub → 查 `/etc/ser2net-hub.conf`（应为 `QUERY_HOST=172.16.66.163`）
 
+**进程在跑，但一个端口都不 LISTEN（`Unable to startup network port dev-x: Permission denied`）**
+先看 Windows 的**动态端口范围**有没有被人改过：
+
+```powershell
+netsh int ipv4 show dynamicport tcp     # 正常：起始 49152 / 数量 16384
+```
+
+若显示 `1024 / 13977` 这类（把 4000–4014 划进了临时端口池），任何程序建出站连接都可能
+随机占用 4011 这种端口。实测 Foxmail 会用 `0.0.0.0:4011` 直接通配绑定，ser2net 启动时
+绑不上、**而且不会重试**——进程活着、yaml 是对的，但整桥静默失效，Linux 侧表现为
+"没有串口 / hub 没有设备"。
+
+修复（管理员）：
+
+```powershell
+netsh int ipv4 set dynamicport tcp start=49152 num=16384
+```
+
+改完还要让占着端口的程序释放旧 socket（实测：重启 Foxmail），再 `restart` ser2net。
+这个设置重启后仍然有效。
+
+**FTDI 等其他 USB 转串口认不出来**
+发现逻辑按 PnP DeviceID 前缀过滤，覆盖 `USB\...`（WCH CH34x 等）和 `FTDIBUS\...`
+（FTDI FT232/FT4232 等）。其它厂商的驱动若用别的前缀，需要在
+`serial-hub.ps1` 的 `Get-UsbSerialDevices` 和 `query-server.ps1` 的
+`Get-LiveComDevices` 两处同时放行（两处都要改，否则会出现"注册了但 live 显示 0"）。
+
 **Linux 侧报 `hub ... did not answer`**
 设备表现场查 hub，hub 不通就直接报错（没有兜底快照了，这是有意的）。
 在 Linux 上跑 `./console.sh --ping` 确认 hub 状态；若 ping 通但设备表为空，

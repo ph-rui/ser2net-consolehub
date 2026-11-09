@@ -1,5 +1,5 @@
 ﻿{
-    "generated":  "2026-10-12 18:52:13",
+    "generated":  "2026-11-09 17:43:48",
     "devices":  [
                     {
                         "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_00\\6\u00262FD485C6\u00260\u00260000",
@@ -76,6 +76,34 @@
                         "alias":  "k",
                         "label":  "USB-SERIAL CH340",
                         "port":  4010,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002625\u00261\\0000",
+                        "alias":  "l",
+                        "label":  "USB Serial Port",
+                        "port":  4011,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002625\u00262\\0000",
+                        "alias":  "m",
+                        "label":  "USB Serial Port",
+                        "port":  4012,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002625\u00263\\0000",
+                        "alias":  "n",
+                        "label":  "USB Serial Port",
+                        "port":  4013,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002625\u00264\\0000",
+                        "alias":  "o",
+                        "label":  "USB Serial Port",
+                        "port":  4014,
                         "baud":  0
                     }
                 ]

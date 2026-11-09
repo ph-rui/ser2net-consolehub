@@ -175,8 +175,14 @@ function Get-ListeningPort {
     physical device across replugs even when the COM number changes.
 #>
 function Get-UsbSerialDevices {
+    # NOTE: do not filter on "USB\*" only - FTDI adapters enumerate as
+    # "FTDIBUS\..." and would be invisible (and therefore never registered,
+    # leaving ser2net with an all-off config).
     $ents = Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '\(COM(\d+)\)\s*$' -and $_.DeviceID -like 'USB\*' } |
+        Where-Object {
+            $_.Name -match '\(COM(\d+)\)\s*$' -and
+            ($_.DeviceID -like 'USB\*' -or $_.DeviceID -like 'FTDIBUS\*')
+        } |
         Sort-Object Name
 
     $devs = @()
