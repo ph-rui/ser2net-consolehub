@@ -216,33 +216,34 @@ fi
 
 # -------------------------------------------------------------- resolve
 TARGET="${TARGET:-a}"
+key="$(echo "$TARGET" | tr 'A-Z' 'a-z')"
 
-if [[ "$TARGET" =~ ^[0-9]+$ ]]; then
-  # raw port
+if [[ -n "${ALIAS_PORT[$key]+x}" ]]; then
+  # Alias lookup comes FIRST: aliases wrap a-z then 1-9, so a literal "8" is a
+  # real alias.  Treating it as a raw port first would silently connect to the
+  # wrong endpoint (or to nothing at all).
+  PORT="${ALIAS_PORT[$key]}"
+  HOST="${ALIAS_HOST[$key]}"
+  LABEL="${ALIAS_LABEL[$key]}"
+  SLOT="$key"
+elif [[ "$TARGET" =~ ^[0-9]+$ ]]; then
+  # raw port (only when no alias of that name exists)
   PORT="$TARGET"
   SLOT="port-$TARGET"
   LABEL=""
 else
-  key="$(echo "$TARGET" | tr 'A-Z' 'a-z')"
-  if [[ -n "${ALIAS_PORT[$key]+x}" ]]; then
-    PORT="${ALIAS_PORT[$key]}"
-    HOST="${ALIAS_HOST[$key]}"
-    LABEL="${ALIAS_LABEL[$key]}"
-    SLOT="$key"
-  else
-    # label match: case-insensitive, substring ok
-    found=""
-    for e in "${ENTRIES[@]}"; do
-      IFS='|' read -r a h p l <<< "$e"
-      if grep -qi "$(echo "$TARGET" | sed 's/[.[\*^$()+?{|]/\\&/g')" <<< "$l"; then
-        found="$a|$h|$p|$l"; break
-      fi
-    done
-    if [[ -n "$found" ]]; then
-      IFS='|' read -r SLOT HOST PORT LABEL <<< "$found"
-    else
-      die "unknown device '$TARGET'. Use an alias, a label, a port number, or --list"
+  # label match: case-insensitive, substring ok
+  found=""
+  for e in "${ENTRIES[@]}"; do
+    IFS='|' read -r a h p l <<< "$e"
+    if grep -qi "$(echo "$TARGET" | sed 's/[.[\*^$()+?{|]/\\&/g')" <<< "$l"; then
+      found="$a|$h|$p|$l"; break
     fi
+  done
+  if [[ -n "$found" ]]; then
+    IFS='|' read -r SLOT HOST PORT LABEL <<< "$found"
+  else
+    die "unknown device '$TARGET'. Use an alias, a label, a port number, or --list"
   fi
 fi
 

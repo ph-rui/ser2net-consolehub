@@ -1,5 +1,5 @@
 ﻿{
-    "generated":  "2026-11-09 17:43:48",
+    "generated":  "2026-11-12 14:11:09",
     "devices":  [
                     {
                         "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_00\\6\u00262FD485C6\u00260\u00260000",
@@ -104,6 +104,146 @@
                         "alias":  "o",
                         "label":  "USB Serial Port",
                         "port":  4014,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002618\u00261\\0000",
+                        "alias":  "p",
+                        "label":  "USB Serial Port",
+                        "port":  4015,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002618\u00262\\0000",
+                        "alias":  "q",
+                        "label":  "USB Serial Port",
+                        "port":  4016,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002618\u00263\\0000",
+                        "alias":  "r",
+                        "label":  "USB Serial Port",
+                        "port":  4017,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002618\u00264\\0000",
+                        "alias":  "s",
+                        "label":  "USB Serial Port",
+                        "port":  4018,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002622\u00261\\0000",
+                        "alias":  "t",
+                        "label":  "USB Serial Port",
+                        "port":  4019,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002622\u00262\\0000",
+                        "alias":  "u",
+                        "label":  "USB Serial Port",
+                        "port":  4020,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002622\u00263\\0000",
+                        "alias":  "v",
+                        "label":  "USB Serial Port",
+                        "port":  4021,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002622\u00264\\0000",
+                        "alias":  "w",
+                        "label":  "USB Serial Port",
+                        "port":  4022,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_00\\6\u002617C4FBE0\u00260\u00260000",
+                        "alias":  "x",
+                        "label":  "USB-Enhanced-SERIAL-A CH344",
+                        "port":  4023,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_02\\6\u002617C4FBE0\u00260\u00260002",
+                        "alias":  "y",
+                        "label":  "USB-Enhanced-SERIAL-B CH344",
+                        "port":  4024,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_04\\6\u002617C4FBE0\u00260\u00260004",
+                        "alias":  "z",
+                        "label":  "USB-Enhanced-SERIAL-C CH344",
+                        "port":  4025,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "USB\\VID_1A86\u0026PID_55D5\u0026MI_06\\6\u002617C4FBE0\u00260\u00260006",
+                        "alias":  "1",
+                        "label":  "USB-Enhanced-SERIAL-D CH344",
+                        "port":  4026,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002620\u00261\\0000",
+                        "alias":  "2",
+                        "label":  "USB Serial Port",
+                        "port":  4027,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002620\u00262\\0000",
+                        "alias":  "3",
+                        "label":  "USB Serial Port",
+                        "port":  4028,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002620\u00263\\0000",
+                        "alias":  "4",
+                        "label":  "USB Serial Port",
+                        "port":  4029,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002620\u00264\\0000",
+                        "alias":  "5",
+                        "label":  "USB Serial Port",
+                        "port":  4030,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002624\u00261\\0000",
+                        "alias":  "6",
+                        "label":  "USB Serial Port",
+                        "port":  4031,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002624\u00262\\0000",
+                        "alias":  "7",
+                        "label":  "USB Serial Port",
+                        "port":  4032,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002624\u00263\\0000",
+                        "alias":  "8",
+                        "label":  "USB Serial Port",
+                        "port":  4033,
+                        "baud":  0
+                    },
+                    {
+                        "fingerprint":  "FTDIBUS\\VID_0403+PID_6011+5\u002639501C9A\u00260\u002624\u00264\\0000",
+                        "alias":  "9",
+                        "label":  "USB Serial Port",
+                        "port":  4034,
                         "baud":  0
                     }
                 ]
