@@ -228,6 +228,9 @@ sudo install -m 755 console.sh ptybridge.py /usr/bin/
 ./console.sh --list            # 显示设备表（向 hub 实时查询）
 ./console.sh --ping            # hub 在不在？有多少设备？
 
+> 纯数字参数**先按别名匹配**：别名池是 a–z 之后 1–9，所以表里出现 `8` 这种数字别名时，
+> `console.sh 8` 连的是别名 8 对应的端口（不是 TCP 8）；没有同名别名时才当端口号。
+
 # 4) 如果程序必须用 /dev/ttyXXX 设备节点（很多传感器 SDK 是这样）
 ./console.sh --pty /dev/ttyUSB9 a
 ```
