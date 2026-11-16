@@ -67,6 +67,7 @@ $DevConfPath  = Join-Path $Root 'linux\devices.conf'
 $StatePath  = Join-Path $Root 'ports.json'
 $PidPath    = Join-Path $Root 'ser2net.pid'
 $RequestPath = Join-Path $Root 'restart.request'   # user->SYSTEM autostart restart marker
+$StopPath   = Join-Path $Root 'stopped.marker'     # explicit stop; reconcile must respect it
 $StdOut     = Join-Path $LogDir 'ser2net-stdout.log'
 $StdErr     = Join-Path $LogDir 'ser2net-stderr.log'
 
@@ -199,20 +200,56 @@ function Get-UsbSerialDevices {
 
 # ------------------------------------------------------- device registry
 function Get-DevicesRegistry {
+    # A MISSING file means "first run" and legitimately yields an empty list.
+    # An UNREADABLE file is a different thing: returning @() would make
+    # Merge-LiveDevices treat every live device as new, reassign aliases/ports
+    # and overwrite the file - destroying the user's names.  Retry briefly (the
+    # write window is milliseconds), then refuse to continue.
     if (-not (Test-Path $DevicesPath)) { return ,@() }
-    try {
-        $r = Get-Content -Raw -Encoding UTF8 $DevicesPath | ConvertFrom-Json
-        $devs = @($r.devices) | Where-Object { $null -ne $_ }
-        return ,$devs
-    } catch { return ,@() }
+    $last = $null
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            $r = Get-Content -Raw -Encoding UTF8 $DevicesPath | ConvertFrom-Json
+            return ,@(@($r.devices) | Where-Object { $null -ne $_ })
+        } catch {
+            $last = $_.Exception.Message
+            Start-Sleep -Milliseconds 120
+        }
+    }
+    throw "devices.json is unreadable ($last). Refusing to continue so aliases/ports are not rewritten; fix the JSON or restore devices.json.bak."
 }
 
 function Save-DevicesRegistry {
     param($Devices)
-    [pscustomobject]@{
+    $json = [pscustomobject]@{
         generated = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
         devices   = @($Devices)
-    } | ConvertTo-Json -Depth 5 | Set-Content -Path $DevicesPath -Encoding UTF8
+    } | ConvertTo-Json -Depth 5
+
+    # Atomic swap: query-server re-reads this file on every request, and
+    # Set-Content truncates before writing, so a reader could see a half-written
+    # file and answer with an empty table.  Write a temp file, then replace;
+    # keep one generation as .bak.
+    $tmp = "$DevicesPath.tmp"
+    [System.IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding($true)))
+    $swapped = $false
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            if (Test-Path $DevicesPath) {
+                [System.IO.File]::Replace($tmp, $DevicesPath, "$DevicesPath.bak")
+            } else {
+                [System.IO.File]::Move($tmp, $DevicesPath)
+            }
+            $swapped = $true
+            break
+        } catch {
+            Start-Sleep -Milliseconds 60
+        }
+    }
+    if (-not $swapped) {
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        throw "could not replace devices.json (locked?): $DevicesPath"
+    }
 }
 
 function Get-NextAlias {
@@ -569,15 +606,20 @@ function Start-Ser2net {
     $vp.WaitForExit()
     Write-Host 'config check passed (2.5 s probe run, killed).' -ForegroundColor DarkGray
 
-    # ---- 2) launch detached. -----------------------------------------------
-    # ShellExecute launch with NO -Redirect*: PS 5.1's Start-Process
-    # -Redirect* keeps a background drain job alive until the child exits,
-    # which would make every `start` call hang until ser2net dies.
+    # ---- 2) launch detached, with stdout/stderr captured. ------------------
+    # ser2net has no log-file option and -d writes to the console.  Redirecting
+    # via Start-Process -Redirect* would keep a drain job alive (see above), so
+    # use a generated cmd wrapper.  `>` (not `>>`) on every start keeps the
+    # files from growing without bound.
+    $runner = Join-Path $LogDir 'run-ser2net.cmd'
+    $line = '"{0}" {1} > "{2}" 2> "{3}"' -f $exe, $serArgs, $StdOut, $StdErr
+    Set-Content -Path $runner -Value "@echo off`r`n$line`r`n" -Encoding ASCII
+
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $exe
-    $psi.Arguments = $serArgs
-    $psi.UseShellExecute = $true
-    $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    $psi.FileName = 'cmd.exe'
+    $psi.Arguments = '/c "' + $runner + '"'
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
     $null = [System.Diagnostics.Process]::Start($psi)
 
     # ---- 3) confirm it came up. ---------------------------------------------
@@ -705,6 +747,10 @@ switch ($Command) {
     }
 
     'start' {
+        # An explicit start cancels an earlier stop.  Done before anything can
+        # fail, so a failed start is retried by reconcile instead of staying
+        # blocked by a stale marker.
+        Remove-Item $StopPath -Force -ErrorAction SilentlyContinue
         $running = Get-Ser2netProc
         if ($running) {
             Write-Host "ser2net already running (pid $($running.Id)). Use 'restart' to force a restart." -ForegroundColor Yellow
@@ -727,7 +773,14 @@ switch ($Command) {
 
     'stop'   {
         Write-Head 'stop'
-        if (Stop-Ser2net) { return }
+        # The marker is what makes "stop" mean stopped: reconcile runs every
+        # 15 s and starts ser2net whenever it is not running.  Write it first so
+        # it is already in place when the SYSTEM loop performs the actual stop.
+        Set-Content -Path $StopPath -Value (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -Encoding ASCII
+        if (Stop-Ser2net) {
+            Write-Host "stays stopped until: serial-hub.ps1 start" -ForegroundColor DarkGray
+            return
+        }
         # ser2net is SYSTEM-owned: ask the autostart loop to stop it.
         Set-Content -Path $RequestPath -Value 'stop' -Encoding ASCII
         Write-Host 'ser2net is owned by the SYSTEM boot task - requesting stop via autostart...' -ForegroundColor Yellow
@@ -737,8 +790,16 @@ switch ($Command) {
             if (-not (Get-Ser2netProc)) { $gone = $true; break }
             Start-Sleep -Milliseconds 1500
         }
-        if ($gone) { Write-Host 'stopped (via autostart).' -ForegroundColor Green }
-        else       { Write-Host 'still running - check logs\autostart.log (is the boot task loop up?)' -ForegroundColor Yellow }
+        if ($gone) {
+            Write-Host 'stopped (via autostart) and will stay stopped.' -ForegroundColor Green
+            Write-Host 'start it again with: serial-hub.ps1 start' -ForegroundColor DarkGray
+        } else {
+            # The stop never took effect; do not leave a marker that would block
+            # the self-heal from bringing a crashed ser2net back later.
+            Remove-Item $StopPath -Force -ErrorAction SilentlyContinue
+            Write-Host 'still running - check logs\autostart.log (is the boot task loop up?)' -ForegroundColor Yellow
+            Write-Host 'stop marker cleared (the stop did not take effect)' -ForegroundColor DarkGray
+        }
     }
 
     'restart' {
@@ -766,6 +827,13 @@ switch ($Command) {
     }
 
     'reconcile' {
+        # An explicit stop outranks the self-heal.  Without this check the very
+        # next step starts ser2net again, so `stop` looked successful and was
+        # silently undone one poll cycle later.
+        if (Test-Path $StopPath) {
+            Write-Host 'ser2net is stopped by request (stopped.marker) - reconcile is a no-op. Run: serial-hub.ps1 start' -ForegroundColor DarkGray
+            return
+        }
         # Idempotent "make reality match the config". Safe to call on a timer:
         # it restarts ser2net ONLY when the device/COM mapping really changed,
         # so a running console session is left alone otherwise.
@@ -881,7 +949,10 @@ switch ($Command) {
     'prune' {
         $keep = [int] $settings.traceKeepDays
         $cut = (Get-Date).AddDays(-$keep)
-        $files = @(Get-ChildItem $LogDir -Filter '*.log' -ErrorAction SilentlyContinue)
+        # Only the per-device trace files.  autostart.log / query-server.log /
+        # watchdog.log are written rarely, so they always look "old" - deleting
+        # them destroys exactly the evidence needed to diagnose an outage.
+        $files = @(Get-ChildItem $LogDir -Filter 'dev-*.log' -ErrorAction SilentlyContinue)
         $old = @($files | Where-Object { $_.LastWriteTime -lt $cut })
         $bytes = ($old | Measure-Object -Property Length -Sum).Sum
         Write-Host "traces: $($files.Count) total, $($old.Count) older than $keep day(s), $([Math]::Round($bytes/1KB,1)) KB reclaimable"

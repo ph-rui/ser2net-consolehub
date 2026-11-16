@@ -35,6 +35,7 @@ $Hub      = Join-Path $PSScriptRoot 'serial-hub.ps1'
 $Query    = Join-Path $PSScriptRoot 'query-server.ps1'
 $BootLog  = Join-Path $Root 'logs\autostart.log'
 $RequestPath = Join-Path $Root 'restart.request'
+$StopPath    = Join-Path $Root 'stopped.marker'
 
 if (-not (Test-Path (Split-Path $BootLog))) {
     New-Item -ItemType Directory -Force -Path (Split-Path $BootLog) | Out-Null
@@ -44,6 +45,49 @@ function Say {
     param([string] $m)
     $line = '{0}  {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m
     Add-Content -Path $BootLog -Value $line
+}
+
+function Start-QueryServer {
+    param([int] $Port)
+    try {
+        $script:QueryProc = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
+                            '-File', "`"$script:Query`"") `
+            -WindowStyle Hidden -PassThru
+        $script:qpFails = 0
+        Say "autostart: query-server started (pid $($script:QueryProc.Id), port $Port)"
+        return $true
+    } catch {
+        Say "autostart: query-server start failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Test-QueryServer {
+    # A hung enumerator keeps the process alive but stops answering; HasExited
+    # cannot see that, and that state makes every Linux client time out.  Ask
+    # the listener directly.  Deliberately short so the 15 s loop never stalls.
+    param([int] $Port, [int] $TimeoutMs = 2000)
+    $c = $null
+    try {
+        $c = New-Object System.Net.Sockets.TcpClient
+        $iar = $c.BeginConnect('127.0.0.1', $Port, $null, $null)
+        if (-not $iar.AsyncWaitHandle.WaitOne($TimeoutMs)) { return $false }
+        $c.EndConnect($iar)
+        $ns = $c.GetStream()
+        $ns.ReadTimeout = $TimeoutMs
+        $ns.WriteTimeout = 1000
+        $b = [System.Text.Encoding]::ASCII.GetBytes("ping`n")
+        $ns.Write($b, 0, $b.Length)
+        $ns.Flush()
+        $buf = New-Object byte[] 256
+        $n = $ns.Read($buf, 0, $buf.Length)
+        return ($n -gt 0 -and [System.Text.Encoding]::ASCII.GetString($buf, 0, $n) -match 'hub ok')
+    } catch {
+        return $false
+    } finally {
+        if ($c) { try { $c.Close() } catch { } }
+    }
 }
 
 Say 'autostart: entered'
@@ -104,8 +148,9 @@ try {
 # instead of whenever somebody remembers to refresh something.
 # Independent of ser2net: it only enumerates USB, it never opens a COM port.
 $QueryProc = $null
+$qp = 0
+$qpFails = 0
 if (-not $NoQueryServer -and (Test-Path $Query)) {
-    $qp = 0
     try { $qp = [int] (Get-Content -Raw -Encoding UTF8 (Join-Path $Root 'settings.json') |
                         ConvertFrom-Json).queryPort } catch { }
     # Reap a previous instance so a re-run of this script cannot leave a
@@ -117,11 +162,7 @@ if (-not $NoQueryServer -and (Test-Path $Query)) {
             Say "autostart: killed stale query-server pid $($_.ProcessId)"
         }
     if ($qp -gt 0) {
-        $QueryProc = Start-Process -FilePath 'powershell.exe' `
-            -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
-                            '-File', "`"$Query`"") `
-            -WindowStyle Hidden -PassThru
-        Say "autostart: query-server started (pid $($QueryProc.Id), port $qp)"
+        $null = Start-QueryServer -Port $qp
     } else {
         Say 'autostart: queryPort is 0 - query server not started'
     }
@@ -139,6 +180,7 @@ if (-not $NoQueryServer -and (Test-Path $Query)) {
 
 # ---- 3. periodic reconcile --------------------------------------------------
 Say "autostart: reconciling every $PollSeconds s (no-op unless device/COM mapping changed)"
+$lastStopped = $false
 while ($true) {
     Start-Sleep -Seconds $PollSeconds
     try {
@@ -149,7 +191,7 @@ while ($true) {
             $act = ((Get-Content $RequestPath -Raw -ErrorAction SilentlyContinue) -replace '\s+', '').Trim()
             Remove-Item $RequestPath -Force -ErrorAction SilentlyContinue
             if ($act -eq 'stop') {
-                Say 'autostart: stop requested (note: reconcile restarts it if this is a bridge-up environment)'
+                Say 'autostart: stop requested'
                 & $Hub stop *>> $BootLog
             } else {
                 Say 'autostart: restart requested'
@@ -161,43 +203,61 @@ while ($true) {
     } catch {
         Say "autostart: marker handling error: $($_.Exception.Message)"
     }
-    try {
-        $out = & $Hub reconcile 2>&1
-        # Match on the restart line, not on one cause: reconcile restarts for
-        # more than one reason (a remapped COM port, and - since the config can
-        # now be re-rendered by hand - a yaml newer than the running ser2net).
-        # Matching only the mapping message is why a real config-driven restart
-        # used to leave no trace in this log at all.
-        if ($out -match 'restarting to pick it up') {
-            Say "autostart: $((($out | Out-String) -replace '\s+', ' ').Trim())"
-            # ser2net got restarted (ports closed again).  Deliberately no
-            # warm probe: restarts do NOT poison the next connect, and the
-            # probe would only eat the single connection slot and could kick
-            # a live user session.  ptybridge.py self-heals any transient.
+
+    # An explicit stop must survive the reconcile timer.  serial-hub.ps1 stop
+    # leaves stopped.marker behind precisely so this loop does not undo it 15 s
+    # later (which is exactly what used to happen).
+    $stopped = Test-Path $StopPath
+    if ($stopped -and -not $lastStopped) {
+        Say 'autostart: stopped.marker present - ser2net stays stopped until: serial-hub.ps1 start'
+    } elseif (-not $stopped -and $lastStopped) {
+        Say 'autostart: stop marker gone - reconciling again'
+    }
+    $lastStopped = $stopped
+
+    if (-not $stopped) {
+        try {
+            $out = & $Hub reconcile 2>&1
+            # Match on the restart line, not on one cause: reconcile restarts for
+            # more than one reason (a remapped COM port, and - since the config can
+            # now be re-rendered by hand - a yaml newer than the running ser2net).
+            # Matching only the mapping message is why a real config-driven restart
+            # used to leave no trace in this log at all.
+            if ($out -match 'restarting to pick it up') {
+                Say "autostart: $((($out | Out-String) -replace '\s+', ' ').Trim())"
+                # ser2net got restarted (ports closed again).  Deliberately no
+                # warm probe: restarts do NOT poison the next connect, and the
+                # probe would only eat the single connection slot and could kick
+                # a live user session.  ptybridge.py self-heals any transient.
+            }
+        } catch {
+            Say "autostart: reconcile error: $($_.Exception.Message)"
         }
-    } catch {
-        Say "autostart: reconcile error: $($_.Exception.Message)"
     }
 
     # ---- query-server watchdog ---------------------------------------------
     # The query server is the Linux side's ONLY source of the device table.  If
     # it dies, every `console.sh` on every client fails outright - there is no
-    # snapshot left to fall back on - so it is restarted in place.  Cheap
-    # liveness check on the child we started; no port probing, since HasExited
-    # avoids touching the network entirely.
+    # snapshot left to fall back on - so it is restarted in place.
     if ($QueryProc -and $qp -gt 0 -and -not $NoQueryServer) {
         $alive = $true
         try { $alive = -not $QueryProc.HasExited } catch { $alive = $false }
         if (-not $alive) {
             Say "autostart: query-server died (exit $($QueryProc.ExitCode)) - restarting"
-            try {
-                $QueryProc = Start-Process -FilePath 'powershell.exe' `
-                    -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass',
-                                    '-File', "`"$Query`"") `
-                    -WindowStyle Hidden -PassThru
-                Say "autostart: query-server restarted (pid $($QueryProc.Id))"
-            } catch {
-                Say "autostart: query-server restart failed: $($_.Exception.Message)"
+            $null = Start-QueryServer -Port $qp
+        } elseif (Test-QueryServer -Port $qp -TimeoutMs 2000) {
+            $qpFails = 0
+        } else {
+            # Alive but not answering: a hung PnP enumeration would otherwise
+            # occupy the single-threaded accept loop forever, with no crash for
+            # the task to notice.  Two misses in a row (~30 s) = restart it.
+            $qpFails++
+            Say "autostart: query-server did not answer on $qp ($qpFails/2)"
+            if ($qpFails -ge 2) {
+                Say 'autostart: query-server looks hung - killing it so it can be restarted'
+                try { Stop-Process -Id $QueryProc.Id -Force -ErrorAction Stop } catch { }
+                Start-Sleep -Milliseconds 500
+                $null = Start-QueryServer -Port $qp
             }
         }
     }

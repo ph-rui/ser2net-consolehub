@@ -128,6 +128,13 @@ def main():
                             s.sendall(b"\x01" + nxt)
                         continue
                     s.sendall(data)
+    except OSError as exc:
+        # A link that drops mid-session is normal (board reset, Wi-Fi, ser2net
+        # restart).  Report it in one line instead of dumping a traceback; the
+        # terminal is restored by the finally below either way.
+        if saved is not None:
+            print(f"\r\n[console] connection closed: {exc}", file=sys.stderr)
+        return 1
     finally:
         restore(saved)
 

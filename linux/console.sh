@@ -44,12 +44,13 @@
 #  that cannot be reached is reported as an error.
 #
 #  Env overrides:
-#     HUB_CONF        path to the "which hub" file (default /etc/ser2net-hub.conf,
-#                     one line: QUERY_HOST=192.168.1.10).  Static config, not
-#                     a render snapshot, so hub discovery survives the snapshot
-#                     being missing or stale.
-#     QUERY_HOST      hub to ask, overrides HUB_CONF
-#     QUERY_PORT      live-query port (default 4099)
+#     HUB_CONF        path to the "which hub" file (default /etc/ser2net-hub.conf).
+#                     Recognised keys, one per line:
+#                         QUERY_HOST=<ip>            (or <ip>:<port>)
+#                         QUERY_PORT=<port>
+#                     Hand-written static config, not a render snapshot.
+#     QUERY_HOST      hub to ask, overrides HUB_CONF; <ip>:<port> also works
+#     QUERY_PORT      live-query port (default 4099); wins over HUB_CONF
 #     QUERY_TIMEOUT   seconds to wait for the answer (default 4)
 #     HOST            default host if a target is given as a bare port
 # =============================================================================
@@ -58,6 +59,11 @@ set -uo pipefail
 HOST="${HOST:-192.168.1.10}"
 # Live query: where the Windows hub answers "which serial ports do you have
 # right now?".  This is the ONLY source of the device table.
+#
+# Remember whether the port came from the environment: only then does it
+# override a QUERY_PORT line in HUB_CONF (see resolve_query_target).
+QUERY_PORT_FROM_ENV=0
+if [[ -n "${QUERY_PORT:-}" ]]; then QUERY_PORT_FROM_ENV=1; fi
 QUERY_HOST="${QUERY_HOST:-}"
 QUERY_PORT="${QUERY_PORT:-4099}"
 QUERY_TIMEOUT="${QUERY_TIMEOUT:-4}"
@@ -72,7 +78,11 @@ MODE="stdio"
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*" >&2; }
 
-command -v socat >/dev/null 2>&1 || die "socat not found. Install: apt install socat  /  yum install socat"
+# socat is only needed to CONNECT (pty mode / non-tty passthrough).  --list and
+# --ping are pure TCP and must keep working on a box that never installed it.
+need_socat() {
+  command -v socat >/dev/null 2>&1 || die "socat not found. Install: apt install socat  /  yum install socat"
+}
 
 # ------------------------------------------------------------ device table
 # The hub's answer, parsed into:
@@ -176,19 +186,48 @@ ping_hub() {
   return 1
 }
 
-# Resolve the hub to ask: QUERY_HOST, else HUB_CONF, else the hub named in the
-# cached conf.  HUB_CONF is checked BEFORE the snapshot on purpose: the snapshot
-# is the thing most likely to be missing or stale, and if we learned the hub
-# address only from it, losing it would silently downgrade the client to the
-# legacy slot path - which aims at $HOST, potentially a different machine.
+# Read one KEY=VALUE line from HUB_CONF (comment lines and stray whitespace are
+# tolerated).  Returns empty when the file or key is missing.
+conf_value() {
+  [[ -r "$HUB_CONF" ]] || return 0
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$HUB_CONF" 2>/dev/null \
+    | head -1 | tr -d '\r' | sed 's/[[:space:]]*$//'
+}
+
+# Print "host port" for the hub to ask.  Accepts a bare address or addr:port in
+# both QUERY_HOST and HUB_CONF; a QUERY_PORT line in HUB_CONF is honoured unless
+# the environment set QUERY_PORT explicitly.
 resolve_query_target() {
-  if [[ -n "$QUERY_HOST" ]]; then printf '%s' "$QUERY_HOST"; return 0; fi
-  if [[ -r "$HUB_CONF" ]]; then
-    local v
-    v="$(sed -n 's/^[[:space:]]*QUERY_HOST[[:space:]]*=[[:space:]]*\([^[:space:]]*\).*/\1/p' "$HUB_CONF" 2>/dev/null | head -1)"
-    if [[ -n "$v" ]]; then printf '%s' "$v"; return 0; fi
+  local v="" p="" hport="$QUERY_PORT"
+  if [[ -n "$QUERY_HOST" ]]; then
+    v="$QUERY_HOST"
+  elif [[ -r "$HUB_CONF" ]]; then
+    v="$(conf_value QUERY_HOST)"
+    p="$(conf_value QUERY_PORT)"
+    if [[ -n "$p" && "$QUERY_PORT_FROM_ENV" == "0" ]]; then hport="$p"; fi
   fi
-  return 1
+  [[ -n "$v" ]] || return 1
+  if [[ "$v" =~ ^([^:[:space:]]+):([0-9]+)$ ]]; then
+    printf '%s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+  elif [[ "$v" == *:* ]]; then
+    return 2   # a colon that is not host:port - never silently append :4099
+  else
+    printf '%s %s\n' "$v" "$hport"
+  fi
+}
+
+# Sets QHOST/QPORT or exits.  Keeps the three failure modes distinct:
+# no hub configured / malformed address / unusable port.
+resolve_or_die() {
+  local hub rc
+  hub="$(resolve_query_target)"; rc=$?
+  case "$rc" in
+    0) ;;
+    2) die "bad hub address (use <ip> or <ip>:<port>)" ;;
+    *) die "no hub to query. Set QUERY_HOST or write QUERY_HOST=<ip> into $HUB_CONF" ;;
+  esac
+  read -r QHOST QPORT <<< "$hub"
+  [[ "$QPORT" =~ ^[0-9]+$ ]] || die "bad query port '$QPORT' (expected a number)"
 }
 
 # ------------------------------------------------------------------ args
@@ -211,9 +250,9 @@ done
 # query failed", so it must cost one round-trip and must not depend on the
 # table query succeeding first.
 if [[ "${MODE}" == "ping" ]]; then
-  qh="$(resolve_query_target)" || die "no hub to query (set QUERY_HOST or write $HUB_CONF)"
-  out="$(ping_hub "$qh" "$QUERY_PORT")" || die "hub $qh:$QUERY_PORT did not answer (query-server down?)"
-  [[ -n "$out" ]] || die "hub $qh:$QUERY_PORT connected but sent nothing"
+  resolve_or_die
+  out="$(ping_hub "$QHOST" "$QPORT")" || die "hub $QHOST:$QPORT did not answer (query-server down?)"
+  [[ -n "$out" ]] || die "hub $QHOST:$QPORT connected but sent nothing"
   printf '%s\n' "$out"
   exit 0
 fi
@@ -222,13 +261,12 @@ fi
 # The hub is the only source.  An unreachable hub is a hard error: there is no
 # snapshot to fall back on any more, and inventing one would be worse than
 # failing, because the result would be a connection to the wrong thing.
-qh="$(resolve_query_target)" \
-  || die "no hub to query. Set QUERY_HOST, or write QUERY_HOST=<ip> into $HUB_CONF"
-if live="$(query_hub "$qh" "$QUERY_PORT")" && [[ -n "$live" ]]; then
-  parse_table "$live" || die "hub $qh:$QUERY_PORT returned no usable devices"
-  SOURCE="live ($qh:$QUERY_PORT)"
+resolve_or_die
+if live="$(query_hub "$QHOST" "$QPORT")" && [[ -n "$live" ]]; then
+  parse_table "$live" || die "hub $QHOST:$QPORT returned no usable devices"
+  SOURCE="live ($QHOST:$QPORT)"
 else
-  die "hub $qh:$QUERY_PORT did not answer. The hub runs ser2net + query-server; check it is up (try: console.sh --ping)"
+  die "hub $QHOST:$QPORT did not answer. The hub runs ser2net + query-server; check it is up (try: console.sh --ping)"
 fi
 
 # ------------------------------------------------------------------- list
@@ -291,6 +329,7 @@ info "device ${SLOT}${LABEL:+/ $LABEL} -> $HOST:$PORT"
 
 # ------------------------------------------------------------------ run
 if [[ "$MODE" == "pty" ]]; then
+  need_socat
   info "exposing $HOST:$PORT (device $SLOT) as $PTY"
   info "point your program at $PTY"
   rm -f "$PTY"
@@ -305,6 +344,7 @@ TCP_TARGET="TCP:$HOST:$PORT,connect-timeout=5,nodelay"
 # cannot apply.  Fall back to plain passthrough - Ctrl+C then hits this
 # host's shell, not the board.
 if [[ ! -t 0 || ! -t 1 ]]; then
+  need_socat
   info "stdin/stdout is not a terminal - running plain passthrough (no raw/echo)"
   exec socat - "$TCP_TARGET"
 fi
@@ -321,4 +361,5 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 
 info "python3 not found - plain passthrough (Ctrl+C exits this console, NOT the board)"
+need_socat
 exec socat - "$TCP_TARGET"

@@ -1,10 +1,22 @@
 # probe-all.ps1 -- banner-read every live ser2net port (data-type, safe)
+param([string] $Ip = '')
+
+# Default to the address this install advertises (see probe-port.ps1).
+if (-not $Ip) {
+    $settings = Join-Path (Split-Path -Parent $PSScriptRoot) 'settings.json'
+    try {
+        $s = Get-Content -Raw -Encoding UTF8 $settings | ConvertFrom-Json
+        $Ip = if ($s.advertiseIp) { [string] $s.advertiseIp } else { [string] $s.bindIp }
+    } catch { }
+    if (-not $Ip -or $Ip -eq '0.0.0.0') { $Ip = '127.0.0.1' }
+}
+
 $ports = 4000, 4001, 4002, 4003, 4006, 4007, 4008, 4009
 foreach ($port in $ports) {
     $label = 'OFFLINE'
     try {
         $c = New-Object System.Net.Sockets.TcpClient
-        $iar = $c.BeginConnect('192.168.1.10', $port, $null, $null)
+        $iar = $c.BeginConnect($Ip, $port, $null, $null)
         if (-not $iar.AsyncWaitHandle.WaitOne(3000)) { throw 'connect timeout' }
         $c.EndConnect($iar)
         $s = $c.GetStream()
@@ -16,8 +28,7 @@ foreach ($port in $ports) {
     } catch { $label = "<error: $($_.Exception.Message)>" }
     Write-Host ("{0}: {1}" -f $port, $label)
 }
-'--- listeners ---'
-Get-NetTCPConnection -State Listen -LocalPort 4000,4001,4002,4003,4006,4007,4008,4009 -ErrorAction SilentlyContinue |
-    Select-Object LocalPort, OwningProcess | Sort-Object LocalPort | Format-Table -AutoSize
-'--- ser2net processes (expect 1) ---'
-Get-CimInstance Win32_Process -Filter "Name='ser2net.exe'" | Select-Object ProcessId, CreationDate | Format-Table -AutoSize
+'--- listeners -----------------------------------------------------------------'
+# netstat, not Get-NetTCPConnection: the latter was observed hanging in
+# hidden-window child PowerShell sessions on this machine.
+netstat -ano | Select-String 'LISTENING' | Select-String ':40[0-9][0-9]\s'

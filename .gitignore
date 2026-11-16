@@ -7,6 +7,8 @@ deploy/*.zip
 logs/
 ports.json
 ser2net.pid
+stopped.marker
+devices.json.tmp
 etc/ser2net/ser2net.yaml
 _restart.request
 restart.request

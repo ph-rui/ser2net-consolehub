@@ -31,6 +31,10 @@
     client shows the source as live and lists nothing, rather than silently
     falling back to a stale snapshot.
 
+    If devices.json cannot be read, the connection is closed WITHOUT a reply
+    instead of returning an empty table: "nothing plugged in" and "registry
+    unreadable" must never look the same to the client.
+
     Deliberately read-only and cheap: it never opens a COM port.  Opening the
     real serial device is ser2net's job (port 4000+); a TCP query that touched
     COM would risk the "Device open failure: Permission denied" quirk that
@@ -80,16 +84,27 @@ function Get-Config {
     } catch { $settings = $null }
 
     $reg = @()
-    try {
-        if (Test-Path $DevicesPath) {
-            $reg = @((Get-Content -Raw -Encoding UTF8 $DevicesPath | ConvertFrom-Json).devices) |
-                   Where-Object { $null -ne $_ }
+    $regErr = $null
+    if (Test-Path $DevicesPath) {
+        # Retry: serial-hub.ps1 replaces the file atomically, but an external
+        # editor or a backup tool can still hold it for a moment.
+        for ($i = 0; $i -lt 4; $i++) {
+            try {
+                $reg = @((Get-Content -Raw -Encoding UTF8 $DevicesPath | ConvertFrom-Json).devices) |
+                       Where-Object { $null -ne $_ }
+                $regErr = $null
+                break
+            } catch {
+                $regErr = $_.Exception.Message
+                Start-Sleep -Milliseconds 120
+            }
         }
-    } catch { $reg = @() }
+    }
 
     [pscustomobject]@{
-        Settings = $settings
-        Registry = $reg
+        Settings      = $settings
+        Registry      = @($reg)
+        RegistryError = $regErr
     }
 }
 
@@ -201,6 +216,13 @@ $serveOne = {
 
         # Fresh config per request (see Get-Config).
         $c = Get-Config
+        # An unreadable registry must NOT be answered with an empty table: the
+        # client cannot tell that apart from "nothing is plugged in" and shows a
+        # perfectly successful, completely wrong --list.  Closing without a
+        # reply makes the client report "hub did not answer", which is true.
+        if ($c.RegistryError) {
+            throw "devices.json unreadable - refusing to answer with an empty table: $($c.RegistryError)"
+        }
         $advIp = Get-AdvIp $c.Settings $Bind
 
         if ($req -eq 'ping') {
