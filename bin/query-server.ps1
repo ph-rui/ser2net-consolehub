@@ -180,7 +180,13 @@ $serveOne = {
     param($client)
     try {
         $stream = $client.GetStream()
-        $stream.ReadTimeout = 3000
+        # A real client sends its one-word request immediately.  Keep this
+        # timeout short: the accept loop is single-threaded, so a stray
+        # zero-byte connection (port probe, health check) would otherwise hold
+        # every other client for the full three seconds - which is exactly the
+        # "first --list says did not answer, second one works" symptom.  On
+        # timeout we still fall through and answer as `devices`.
+        $stream.ReadTimeout = 800
         $stream.WriteTimeout = 3000
         try { $client.NoDelay = $true } catch { }
 

@@ -559,6 +559,13 @@ netsh int ipv4 set dynamicport tcp start=49152 num=16384
 在 Linux 上跑 `./console.sh --ping` 确认 hub 状态；若 ping 通但设备表为空，
 说明 hub 在跑、只是当前没插设备。
 
+偶发第一次 `--list` 报这个错、马上重跑就成功，是 4099 单线程查询被别的东西
+挡住了：任何程序对 4099 开一个不发数据的连接（`nc -z`、`Test-NetConnection`、
+监控探活），query-server 都要等读超时才处理下一个人，客户端 2 秒超时就报错。
+现在 query-server 的读超时降到 0.8 秒，`console.sh` 默认等 4 秒并自动重试一次，
+这种现象不会再冒到用户面前。若仍频繁出现，在 Windows 上用
+`Get-NetTCPConnection -LocalPort 4099` 看谁在连，并统一改用 `console.sh --ping`。
+
 **COM 号在跑的过程中变了**
 插拔板子、或 USB 供电波动导致串口重新枚举。autostart 每 15 秒 `reconcile` 一次，
 会自动把新 COM 号渲染进去并重启。手动触发：`.\serial-hub.ps1 reconcile`

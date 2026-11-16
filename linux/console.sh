@@ -50,7 +50,7 @@
 #                     being missing or stale.
 #     QUERY_HOST      hub to ask, overrides HUB_CONF
 #     QUERY_PORT      live-query port (default 4099)
-#     QUERY_TIMEOUT   seconds to wait for the answer (default 2)
+#     QUERY_TIMEOUT   seconds to wait for the answer (default 4)
 #     HOST            default host if a target is given as a bare port
 # =============================================================================
 set -uo pipefail
@@ -60,7 +60,7 @@ HOST="${HOST:-192.168.1.10}"
 # right now?".  This is the ONLY source of the device table.
 QUERY_HOST="${QUERY_HOST:-}"
 QUERY_PORT="${QUERY_PORT:-4099}"
-QUERY_TIMEOUT="${QUERY_TIMEOUT:-2}"
+QUERY_TIMEOUT="${QUERY_TIMEOUT:-4}"
 # Static "which hub do I ask" file.  It answers the one question the live query
 # cannot: WHICH hub to ask.  That has to be known before anything can be
 # queried, so it cannot come from the hub itself.  A three-line hand-written
@@ -130,8 +130,22 @@ _query_hub_inner() {
 # Runs the query in a subshell with stderr muted, so bash's own
 # "/dev/tcp/...: Connection refused" cannot leak onto the user's terminal while
 # we silently fall back to the cached conf.
+# One retry: the hub is a single-threaded PowerShell loop, so a stray zero-byte
+# connection (a port probe, a health check) makes the FIRST real query wait for
+# its read timeout before the server gets to us.  That looks like "hub did not
+# answer" even though the very next run succeeds.  The retry turns it into a
+# short pause instead of an error; a genuinely dead hub still fails fast.
 query_hub() {
-  ( _query_hub_inner "$1" "$2" ) 2>/dev/null
+  local i out
+  for i in 1 2; do
+    out="$( ( _query_hub_inner "$1" "$2" ) 2>/dev/null )"
+    if [[ -n "$out" ]]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+    [[ $i -eq 1 ]] && sleep 0.3
+  done
+  return 1
 }
 
 # Is the hub answering?  One line, no table: who answered, what address it is
@@ -146,6 +160,20 @@ _hub_ping() {
   exec {qfd}>&- 2>/dev/null
   [[ -n "$out" ]] || return 1
   printf '%s\n' "$out"
+}
+
+# Same one-retry rule as query_hub (see the comment there).
+ping_hub() {
+  local i out
+  for i in 1 2; do
+    out="$(_hub_ping "$1" "$2" 2>/dev/null)"
+    if [[ -n "$out" ]]; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+    [[ $i -eq 1 ]] && sleep 0.3
+  done
+  return 1
 }
 
 # Resolve the hub to ask: QUERY_HOST, else HUB_CONF, else the hub named in the
@@ -178,6 +206,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# ------------------------------------------------------------------- ping
+# Handled before the table query: --ping is the diagnostic for "the table
+# query failed", so it must cost one round-trip and must not depend on the
+# table query succeeding first.
+if [[ "${MODE}" == "ping" ]]; then
+  qh="$(resolve_query_target)" || die "no hub to query (set QUERY_HOST or write $HUB_CONF)"
+  out="$(ping_hub "$qh" "$QUERY_PORT")" || die "hub $qh:$QUERY_PORT did not answer (query-server down?)"
+  [[ -n "$out" ]] || die "hub $qh:$QUERY_PORT connected but sent nothing"
+  printf '%s\n' "$out"
+  exit 0
+fi
+
 # --------------------------------------------------------- resolve the table
 # The hub is the only source.  An unreachable hub is a hard error: there is no
 # snapshot to fall back on any more, and inventing one would be worse than
@@ -189,15 +229,6 @@ if live="$(query_hub "$qh" "$QUERY_PORT")" && [[ -n "$live" ]]; then
   SOURCE="live ($qh:$QUERY_PORT)"
 else
   die "hub $qh:$QUERY_PORT did not answer. The hub runs ser2net + query-server; check it is up (try: console.sh --ping)"
-fi
-
-# ------------------------------------------------------------------- ping
-if [[ "${MODE}" == "ping" ]]; then
-  qh="$(resolve_query_target)" || die "no hub to query (set QUERY_HOST or write $HUB_CONF)"
-  out="$(_hub_ping "$qh" "$QUERY_PORT")" || die "hub $qh:$QUERY_PORT did not answer (query-server down?)"
-  [[ -n "$out" ]] || die "hub $qh:$QUERY_PORT connected but sent nothing"
-  printf '%s\n' "$out"
-  exit 0
 fi
 
 # ------------------------------------------------------------------- list
