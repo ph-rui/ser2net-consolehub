@@ -19,6 +19,10 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
         Stop-Process -Id $_.ProcessId -Force
     }
 
+# The instance IDs below are sanitized placeholders.  Replace them with your
+# own adapters' IDs before use, e.g.:
+#   Get-PnpDevice -Class Ports |
+#       Where-Object InstanceId -like 'USB\VID_1A86&PID_55D5&MI_00\*'
 $targets = @(
     [pscustomobject]@{ Com = 99;  Id = 'USB\VID_1A86&PID_55D5&MI_00\6&00000001&0&0000' },
     [pscustomobject]@{ Com = 148; Id = 'USB\VID_1A86&PID_55D5&MI_00\6&00000002&0&0000' }

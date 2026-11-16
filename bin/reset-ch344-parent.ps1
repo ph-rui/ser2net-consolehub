@@ -39,6 +39,8 @@ if (-not $dev) {
     } catch { L "  ENABLE ERROR: $($_.Exception.Message)" }
 }
 
+# NOTE: the serial below is a sanitized placeholder; substitute your adapter's
+# instance ID (Get-PnpDevice) before relying on this report.
 # 3) report the four interfaces + their COM numbers now
 Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match '\(COM\d+\)' -and $_.DeviceID -like 'USB\VID_1A86&PID_55D5&MI_*\6&00000001*' } |
