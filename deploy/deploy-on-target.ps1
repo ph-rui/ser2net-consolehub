@@ -2,11 +2,12 @@
     deploy-on-target.ps1 - one-shot installer to run ON the TARGET machine.
     Fetched to the target via pscp, then executed through a plink SSH shell.
 
-      1) unzip the package zip  ->  C:\ser2net
-      2) verify / fix settings.json bindIp  (must match the machine's own IP)
+      1) unzip the package zip  ->  Dest (default C:\ser2net)
+      2) fix settings.json bindIp AND advertiseIp for THIS machine
       3) register SYSTEM boot task via install-boot-task.ps1 (auto /Run's it)
-      4) firewall inbound rule 4000-4015 if any profile is enabled
-      5) wait, then dump status + listeners
+      4) harden it via harden-boot-task.ps1 (restart-on-failure + watchdog)
+      5) firewall inbound: serial ports + the query port (4099 by default)
+      6) wait, then dump status + listeners and prove the query port answers
 
     Log: <USERPROFILE>\ser2net-deploy.log
 #>
@@ -39,22 +40,65 @@ try {
     exit 1
 }
 
-# ---- 2. settings.json - confirm bindIp --------------------------------
+# ---- 2. settings.json - bindIp / advertiseIp must match THIS machine ----
+# The package is built on another box and carries that box's addresses, so a
+# plain unzip would leave bindIp pointing at a NIC that does not exist here
+# (nothing listens) and advertiseIp telling every client to connect to the OLD
+# machine (they reach the wrong boards).  Both are corrected below.
+function Get-LocalIPv4 {
+    $addrs = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+               Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254*' } |
+               Select-Object -ExpandProperty IPAddress)
+    if ($addrs.Count -eq 0) { return $null }
+    try {
+        $primary = (Get-NetIPConfiguration -ErrorAction Stop |
+                    Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |
+                    Select-Object -First 1).IPv4Address.IPAddress
+        if ($primary -and $addrs -contains $primary) { return $primary }
+    } catch { }
+    return $addrs[0]
+}
+function Get-SettingValue { param($Text, $Name)
+    $m = [regex]::Match($Text, '"' + $Name + '":\s*"([^"]*)"')
+    if ($m.Success) { return $m.Groups[1].Value } else { return $null }
+}
+function Set-SettingValue { param($Text, $Name, $Value)
+    $pattern = '"' + $Name + '":\s*"[^"]*"'
+    if ([regex]::IsMatch($Text, $pattern)) {
+        return [regex]::Replace($Text, $pattern, ('"' + $Name + '":  "' + $Value + '"'))
+    }
+    # key absent: insert it right after the opening brace
+    return [regex]::Replace($Text, '^\{', ('{' + "`n    `"$Name`":  `"$Value`","))
+}
+
 $set = Join-Path $Dest 'settings.json'
 $txt = Get-Content -Raw -Encoding UTF8 $set
-$m = [regex]::Match($txt, '"bindIp":\s*"([^"]*)"')
-$ip = if ($m.Success) { $m.Groups[1].Value } else { '<none>' }
-Say "settings bindIp=$ip"
-if (-not $m.Success -or $ip -eq '0.0.0.0') {
-    $local = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-              Where-Object { $_.IPAddress -notlike '169.254*' -and $_.IPAddress -ne '127.0.0.1' } |
-              Select-Object -First 1).IPAddress
-    if ($local) {
-        Say "rewriting bindIp -> $local"
-        $txt = $txt -replace '"bindIp":\s*"[^"]*"', ('"bindIp":  "' + $local + '"')
+$local = Get-LocalIPv4
+$localAddrs = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty IPAddress)
+
+$bind = Get-SettingValue $txt 'bindIp'
+$adv  = Get-SettingValue $txt 'advertiseIp'
+$bindOk = [bool]($bind -and $bind -ne '0.0.0.0' -and ($localAddrs -contains $bind))
+$advOk  = [bool]($adv  -and $adv  -ne '0.0.0.0' -and ($localAddrs -contains $adv))
+Say "settings bindIp=$bind advertiseIp=$adv  (local: $($localAddrs -join ', '))"
+
+if (-not $local) {
+    Say 'WARN: no usable IPv4 found, leaving bindIp/advertiseIp as-is'
+} else {
+    if (-not $bindOk) {
+        Say "rewriting bindIp $bind -> $local"
+        $txt = Set-SettingValue $txt 'bindIp' $local
+    }
+    if (-not $advOk) {
+        Say "rewriting advertiseIp $adv -> $local"
+        $txt = Set-SettingValue $txt 'advertiseIp' $local
+    }
+    if (-not $bindOk -or -not $advOk) {
         [System.IO.File]::WriteAllText($set, $txt, (New-Object System.Text.UTF8Encoding($false)))
+        Say 'settings.json updated'
     } else {
-        Say 'WARN: no usable IPv4 found, leaving bindIp as-is'
+        Say 'settings.json already matches this machine - left alone'
     }
 }
 
@@ -67,19 +111,37 @@ foreach ($p in $ports) {
     Say ("  COM$com  id=" + $p.DeviceID)
 }
 
-# ---- 4. boot task (needs the elevated session) -------------------------
+# ---- 4. boot task + hardening (needs the elevated session) -------------
 $boot = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Dest 'bin\install-boot-task.ps1') 2>&1
 $boot | ForEach-Object { Say ("boottask: " + $_) }
 Say ('boottask-launcher exit: ' + $LASTEXITCODE)
 
+# install-boot-task registers only the ONSTART task.  harden-boot-task adds the
+# restart-on-failure policy and the separate watchdog task; without it a loop
+# that dies stays dead until the next reboot.
+$hard = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Dest 'bin\harden-boot-task.ps1') 2>&1
+$hard | ForEach-Object { Say ("harden: " + $_) }
+Say ('harden-launcher exit: ' + $LASTEXITCODE)
+
 # ---- 5. firewall -------------------------------------------------------
+# 4099 is the query server.  Without it ser2net's ports work while every
+# Linux client still says "hub did not answer".
+$queryPort = 4099
+$q = [regex]::Match($txt, '"queryPort":\s*([0-9]+)')
+if ($q.Success) { $queryPort = [int] $q.Groups[1].Value }
+$serialPorts = '4000-4015'
+$fwPorts = if ($queryPort -ge 4000 -and $queryPort -le 4015) { $serialPorts } else { "$serialPorts,$queryPort" }
 try {
     $prof = @(Get-NetFirewallProfile -ErrorAction Stop)
     $enabled = @($prof | Where-Object { $_.Enabled }).Count
     Say ("firewall profiles enabled=" + $enabled + "/" + $prof.Count)
     if ($enabled -gt 0) {
-        $r = netsh advfirewall firewall add rule name="ser2net-console 4000-4015" dir=in action=allow protocol=TCP localport=4000-4015
+        foreach ($n in @('ser2net-console', 'ser2net-console 4000-4015')) {
+            $null = netsh advfirewall firewall delete rule name="$n" 2>&1
+        }
+        $r = netsh advfirewall firewall add rule name="ser2net-console" dir=in action=allow protocol=TCP localport=$fwPorts
         $r | ForEach-Object { Say ("fwrule: " + $_) }
+        Say "firewall rule covers TCP $fwPorts"
     } else {
         Say 'firewall all disabled - no rule needed'
     }
@@ -97,6 +159,15 @@ $ls = @(netstat -ano | Select-String 'TCP' | Select-String 'LISTENING' | Select-
 Say ('listeners on 40xx: ' + $ls.Count)
 $ls | ForEach-Object { Say ("  " + $_.Line.Trim()) }
 if ($ls.Count -eq 0) { Say 'listen: NONE on 40xx yet' }
+
+# The query port is the one failure that looks like a client bug, so check it
+# explicitly instead of trusting the serial listeners above.
+$ql = @(netstat -ano | Select-String 'LISTENING' | Select-String (':' + $queryPort + '\s'))
+if ($ql.Count -gt 0) {
+    Say "query port ${queryPort}: listening"
+} else {
+    Say "query port ${queryPort}: NOT LISTENING - Linux clients will fail; check logs\query-server.log"
+}
 
 Say '=== deploy-on-target done ==='
 exit 0

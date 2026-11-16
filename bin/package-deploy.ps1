@@ -10,8 +10,8 @@
       bin\ser2net.exe + all DLLs + every .ps1 (all scripts are $PSScriptRoot-relative)
       etc\ser2net\ser2net.template.yaml
       linux\console.sh / ptybridge.py / selftest.py
-      settings.json (bindIp pre-set to -TargetIp)
-      README.md + DEPLOY-NEW-BOX.md
+      settings.json (bindIp AND advertiseIp pre-set to -TargetIp)
+      README.md + DEPLOY-NEW-BOX.md + DEPLOY-WIN10.md
 
     What it deliberately EXCLUDES (target-machine runtime state that must be
     rebuilt on the new box - copying it would import THIS box's hardware):
@@ -51,15 +51,19 @@ foreach ($f in 'console.sh', 'ptybridge.py', 'selftest.py') {
 }
 
 # ---- root files --------------------------------------------------------------------
-foreach ($f in 'settings.json', 'README.md', 'DEPLOY-NEW-BOX.md') {
+foreach ($f in 'settings.json', 'README.md', 'DEPLOY-NEW-BOX.md', 'DEPLOY-WIN10.md') {
     $p = Join-Path $Root $f
     if (Test-Path $p) { Copy-Item $p $Stage -Force }
 }
 
 # ---- sanitize the settings copy (text-level replaces keep the file's formatting) ---
+# advertiseIp matters as much as bindIp: if it still names THIS box, the target's
+# clients are told to connect back to this box and silently reach the wrong port.
+# deploy-on-target.ps1 corrects both again against the target's real NICs.
 $s = Join-Path $Stage 'settings.json'
 $txt = Get-Content -Raw -Encoding UTF8 $s
 $txt = $txt -replace '"bindIp":\s*"[^"]*"', ('"bindIp":  "' + $TargetIp + '"')
+$txt = $txt -replace '"advertiseIp":\s*"[^"]*"', ('"advertiseIp":  "' + $TargetIp + '"')
 $txt = $txt -replace '"sudoPassword":\s*"[^"]*"', '"sudoPassword":  "EDIT-ME"'
 [System.IO.File]::WriteAllText($s, $txt, (New-Object System.Text.UTF8Encoding($false)))
 
@@ -70,7 +74,7 @@ Remove-Item $Stage -Recurse -Force
 
 Write-Host ''
 Write-Host "package ready:  $Zip" -ForegroundColor Green
-Write-Host "  settings.json inside: bindIp=$TargetIp"
+Write-Host "  settings.json inside: bindIp/advertiseIp=$TargetIp"
 Write-Host ''
 Write-Host 'contents:'
 Add-Type -AssemblyName System.IO.Compression.FileSystem

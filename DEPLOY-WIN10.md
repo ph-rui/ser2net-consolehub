@@ -52,10 +52,25 @@ ser2net 4.6.8 和 Gensio 3.0.4 的 DLL，两个版本的 ABI 必须对应，混�
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File C:\ser2net\bin\install-boot-task.ps1
+powershell -ExecutionPolicy Bypass -File C:\ser2net\bin\harden-boot-task.ps1
 ```
 
-脚本会注册两个开机任务（主服务和看门狗），并立即启动一次。以后开机自动运行，不用登录。
-开机后大约 1–3 分钟服务就绪。
+第一条注册开机任务（主服务），第二条加上失败重启策略和独立的看门狗任务。
+两条都是幂等的，重跑无害。以后开机自动运行，不用登录，大约 1–3 分钟服务就绪。
+
+### 3b. 放行防火墙
+
+Windows 防火墙默认会拦掉入站连接。只需要做一次：
+
+```powershell
+netsh advfirewall firewall add rule name="ser2net-console" dir=in action=allow protocol=TCP localport=4000-4015,4099
+```
+
+`4000-4015` 是串口端口，`4099` 是设备表查询端口。**漏了 4099 的典型现象**是串口能连，
+但 Linux 上 `console.sh --list` 一直报 `hub did not answer`。
+
+> 用 `deploy-on-target.ps1` 自动部署时，settings.json、开机任务、防火墙都会被自动处理，
+> 这一节可以跳过。
 
 ### 4. 接入串口设备
 
@@ -100,7 +115,8 @@ sudo install -m 755 console.sh ptybridge.py selftest.py /usr/bin/
 ```
 
 `QUERY_HOST` 填 Windows 主机的地址，`console.sh` 靠它去查设备表。配置文件只有这一行，
-以后换 Windows 机器只改这里。
+以后换 Windows 机器只改这里。查询端口默认是 4099，改过的话在同一个文件里再加一行
+`QUERY_PORT=<端口>`（环境变量 `QUERY_PORT` 优先级更高）。
 
 ---
 
